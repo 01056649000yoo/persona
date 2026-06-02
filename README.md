@@ -1,25 +1,22 @@
-﻿# Persona Frontend
+# Persona Voice Lab
 
-작가 페르소나 수업용 프론트엔드 기본 프로젝트입니다.
+OpenAI Realtime API를 이용해 로컬 PC에서만 실행하는 페르소나 음성 대화 앱입니다.
 
-## 시작
+## 실행
 
-```bash
-npm install
-npm run dev
-```
+1. PowerShell에서 앱 폴더로 이동합니다.
+2. `node server.js`
+3. 브라우저에서 `http://localhost:3030`
+4. OpenAI API 키를 입력하고 음성 세션을 시작합니다.
 
-## 환경 변수
+## 특징
 
-`.env` 파일을 만들고 아래 값을 설정합니다.
+- 설치 없이 실행되는 순수 Node 서버
+- 브라우저 WebRTC 기반 실시간 음성 대화
+- 페르소나 프롬프트, 음성, 속도, 응답 길이 설정
+- 텍스트 수동 입력과 Realtime 이벤트 로그
 
-```bash
-VITE_API_BASE_URL=http://your-api-server:4000
-VITE_APP_NAME=Persona Classroom
-```
+## 참고
 
-## 백엔드 연결 방식
-
-- 프론트엔드는 직접 DB에 연결하지 않습니다.
-- 집의 맥미니에 띄운 API 서버 주소를 `VITE_API_BASE_URL`로 연결합니다.
-- 인증, OpenAI 키 관리, DB 접근은 모두 백엔드에서 처리하는 구조를 전제로 합니다.
+- 음성 변경은 첫 응답 이후 같은 세션에서 제한될 수 있어 재연결이 더 안정적입니다.
+- 로컬 전용 실험 앱이라 API 키를 UI 입력 방식으로 받습니다.
