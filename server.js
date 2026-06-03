@@ -143,7 +143,7 @@ function buildSessionConfig(config) {
   const session = {
     type: "realtime",
     model: config.model || "gpt-realtime-mini",
-    output_modalities: ["audio", "text"],
+    output_modalities: ["audio"],
     instructions: buildInstructions(config),
     audio: {
       input: {
@@ -227,6 +227,71 @@ async function handleSession(req, res) {
   }
 }
 
+async function handleRealtimeToken(req, res) {
+  try {
+    const rawBody = await readBody(req);
+    const body = JSON.parse(rawBody || "{}");
+    const apiKey = body.apiKey || process.env.OPENAI_API_KEY;
+
+    if (!apiKey) {
+      json(res, 400, {
+        error: "OpenAI API key is required. Enter it in the app or set OPENAI_API_KEY.",
+      });
+      return;
+    }
+
+    const response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        expires_after: {
+          anchor: "created_at",
+          seconds: 600,
+        },
+        session: buildSessionConfig(body.config || {}),
+      }),
+    });
+
+    const responseText = await response.text();
+
+    if (!response.ok) {
+      json(res, response.status, normalizeOpenAIError(response.status, responseText));
+      return;
+    }
+
+    let payload = null;
+    try {
+      payload = JSON.parse(responseText);
+    } catch {
+      json(res, 502, {
+        error: "OpenAI에서 실시간 토큰 응답을 읽지 못했습니다.",
+      });
+      return;
+    }
+
+    const clientSecret = payload?.client_secret?.value || payload?.value;
+
+    if (!clientSecret) {
+      json(res, 502, {
+        error: "OpenAI에서 실시간 토큰을 받지 못했습니다.",
+      });
+      return;
+    }
+
+    json(res, 200, {
+      clientSecret,
+      expiresAt: payload?.client_secret?.expires_at || payload?.expires_at || null,
+      session: payload?.session || null,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown server error";
+    json(res, 500, { error: message });
+  }
+}
+
 const server = createServer(async (req, res) => {
   if (!req.url || !req.method) {
     json(res, 400, { error: "Invalid request" });
@@ -235,6 +300,11 @@ const server = createServer(async (req, res) => {
 
   if (req.method === "POST" && req.url === "/api/session") {
     await handleSession(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/realtime-token") {
+    await handleRealtimeToken(req, res);
     return;
   }
 

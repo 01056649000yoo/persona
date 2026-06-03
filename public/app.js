@@ -47,7 +47,9 @@ const els = {
   saveSettingsButton: document.querySelector("#saveSettingsButton"),
   settingsStatus: document.querySelector("#settingsStatus"),
   startConversationButton: document.querySelector("#startConversationButton"),
+  startTextTestButton: document.querySelector("#startTextTestButton"),
   connectButton: document.querySelector("#connectButton"),
+  connectTextTestButton: document.querySelector("#connectTextTestButton"),
   disconnectButton: document.querySelector("#disconnectButton"),
   endCallButton: document.querySelector("#endCallButton"),
   sendTextButton: document.querySelector("#sendTextButton"),
@@ -69,6 +71,11 @@ const state = {
   dc: null,
   stream: null,
   connected: false,
+  sessionConfigured: false,
+  initialGreetingRequested: false,
+  initialGreetingCompleted: false,
+  awaitingResponse: false,
+  responseAfterSpeechTimer: null,
   callPhase: "idle",
   callTimer: null,
   ringbackContext: null,
@@ -271,11 +278,21 @@ function setInputMode(mode) {
   state.inputMode = mode;
 }
 
+function setLocalAudioEnabled(enabled) {
+  if (!state.stream) return;
+  for (const track of state.stream.getAudioTracks()) {
+    track.enabled = enabled;
+  }
+}
+
 function refreshCallControls() {
   const callBusy =
     state.callStarting || state.connected || state.callPhase === "dialing" || state.callPhase === "ringing";
 
   els.connectButton.disabled = callBusy;
+  if (els.connectTextTestButton) {
+    els.connectTextTestButton.disabled = callBusy;
+  }
   els.disconnectButton.disabled = !callBusy;
   els.endCallButton.disabled = !callBusy;
   els.sendTextButton.disabled = !state.connected;
@@ -327,9 +344,9 @@ function setCallPhase(phase, detail = "") {
     els.callStageText.textContent = detail || "작가가 전화를 받았어요. 이제 이야기해 보세요.";
     setStatus("대화 중");
     els.liveCaption.textContent =
-      state.inputMode === "audio"
-        ? "마이크로 바로 말할 수 있습니다. 내가 말하면 작가가 실시간으로 듣고 답합니다."
-        : "마이크 없이 연결되었습니다. 아래 글상자에 입력하면 작가가 바로 답합니다.";
+      state.inputMode === "text"
+        ? "텍스트 테스트 연결이 완료되었어요. 아래 글상자에 질문을 적어 페르소나가 잘 살아 있는지 확인해 보세요."
+        : "마이크로 바로 말할 수 있습니다. 내가 말하면 작가가 실시간으로 듣고 답합니다.";
     return;
   }
 
@@ -374,6 +391,10 @@ function appendConversation(role, text, meta = "") {
   els.conversationLog.prepend(item);
 }
 
+function clearConversationLog() {
+  els.conversationLog.innerHTML = "";
+}
+
 function replaceTopAssistantDraft(text) {
   let firstAssistant = els.conversationLog.querySelector(".conversation-item.assistant");
 
@@ -393,6 +414,26 @@ function clearCallTimer() {
     window.clearTimeout(state.callTimer);
     state.callTimer = null;
   }
+}
+
+function clearResponseAfterSpeechTimer() {
+  if (state.responseAfterSpeechTimer) {
+    window.clearTimeout(state.responseAfterSpeechTimer);
+    state.responseAfterSpeechTimer = null;
+  }
+}
+
+function requestAssistantResponse(instructions = "") {
+  if (state.awaitingResponse) return;
+  state.awaitingResponse = true;
+  sendEvent(
+    instructions
+      ? {
+          type: "response.create",
+          response: { instructions },
+        }
+      : { type: "response.create" },
+  );
 }
 
 function stopRingbackTone() {
@@ -540,6 +581,87 @@ function sendEvent(event) {
   state.dc.send(JSON.stringify(event));
 }
 
+function waitForDataChannelOpen(channel, timeoutMs = 10000) {
+  if (!channel) {
+    return Promise.reject(new Error("작가와 연결할 데이터 채널을 만들지 못했어요."));
+  }
+
+  if (channel.readyState === "open") {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timeoutId = null;
+
+    const cleanup = () => {
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+      channel.removeEventListener("open", handleOpen);
+      channel.removeEventListener("error", handleError);
+      channel.removeEventListener("close", handleClose);
+    };
+
+    const finish = (callback) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback();
+    };
+
+    const handleOpen = () => finish(resolve);
+    const handleError = () => finish(() => reject(new Error("작가와 연결하는 중 데이터 채널 오류가 발생했어요.")));
+    const handleClose = () => finish(() => reject(new Error("작가와 연결되기 전에 데이터 채널이 닫혔어요.")));
+
+    channel.addEventListener("open", handleOpen);
+    channel.addEventListener("error", handleError);
+    channel.addEventListener("close", handleClose);
+
+    timeoutId = window.setTimeout(() => {
+      finish(() => reject(new Error("작가와 연결이 너무 오래 걸리고 있어요. 잠시 후 다시 시도해 주세요.")));
+    }, timeoutMs);
+  });
+}
+
+function waitForIceGatheringComplete(peerConnection, timeoutMs = 4000) {
+  if (!peerConnection) {
+    return Promise.reject(new Error("통화 연결을 준비할 수 없어요."));
+  }
+
+  if (peerConnection.iceGatheringState === "complete") {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let timeoutId = null;
+
+    const cleanup = () => {
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+      peerConnection.removeEventListener("icegatheringstatechange", handleStateChange);
+    };
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+
+    const handleStateChange = () => {
+      if (peerConnection.iceGatheringState === "complete") {
+        finish();
+      }
+    };
+
+    peerConnection.addEventListener("icegatheringstatechange", handleStateChange);
+    timeoutId = window.setTimeout(finish, timeoutMs);
+  });
+}
+
 function normalizeUiErrorMessage(rawMessage) {
   if (!rawMessage) {
     return "오류가 발생했어요. 다시 시도해 주세요.";
@@ -554,8 +676,49 @@ function normalizeUiErrorMessage(rawMessage) {
   return trimmed;
 }
 
+function describeMicrophoneError(error) {
+  const name = error && typeof error === "object" && "name" in error ? String(error.name) : "";
+
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+    return "마이크 권한이 거부되어 있어요. 브라우저 주소창의 마이크 권한을 허용으로 바꾼 뒤 다시 시도해 주세요.";
+  }
+
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return "사용할 수 있는 마이크를 찾지 못했어요. 마이크가 연결되어 있는지 확인해 주세요.";
+  }
+
+  if (name === "NotReadableError" || name === "TrackStartError") {
+    return "마이크를 다른 앱이 사용 중이거나 기기에서 읽을 수 없어요. 다른 통화 앱을 끄고 다시 시도해 주세요.";
+  }
+
+  if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") {
+    return "이 브라우저에서 마이크 설정을 맞추지 못했어요. 브라우저를 다시 열고 시도해 주세요.";
+  }
+
+  if (name === "SecurityError") {
+    return "브라우저 보안 설정 때문에 마이크를 사용할 수 없어요. localhost 주소로 접속했는지 확인해 주세요.";
+  }
+
+  if (name === "AbortError") {
+    return "마이크 연결이 중간에 취소되었어요. 다시 한 번 시도해 주세요.";
+  }
+
+  return "마이크를 켜지 못했어요. 브라우저와 macOS의 마이크 권한을 확인한 뒤 다시 시도해 주세요.";
+}
+
 function handleRealtimeEvent(event) {
+  console.debug("[realtime event]", event.type, event);
+
   switch (event.type) {
+    case "session.created":
+      break;
+    case "session.updated":
+      state.sessionConfigured = true;
+      if (!state.initialGreetingRequested) {
+        state.initialGreetingRequested = true;
+        requestAssistantResponse("통화가 연결되었다. 먼저 짧고 따뜻하게 인사하고, 아이가 무엇이 궁금한지 한 문장으로 물어봐라.");
+      }
+      break;
     case "response.created":
       setStatus("작가가 말하는 중");
       state.assistantDraftText = "";
@@ -566,21 +729,36 @@ function handleRealtimeEvent(event) {
       replaceTopAssistantDraft(state.assistantDraftText);
       break;
     case "response.done":
+      state.awaitingResponse = false;
       state.assistantDraftText = "";
-      setCallPhase(state.connected ? "connected" : "idle");
+      if (state.connected && state.inputMode === "audio" && !state.initialGreetingCompleted) {
+        state.initialGreetingCompleted = true;
+        setLocalAudioEnabled(true);
+        setCallPhase("connected", "작가 인사가 끝났어요. 이제 이야기해 보세요.");
+      } else {
+        setCallPhase(state.connected ? "connected" : "idle");
+      }
       break;
     case "input_audio_buffer.speech_started":
+      if (!state.initialGreetingCompleted) {
+        return;
+      }
+      clearResponseAfterSpeechTimer();
       setStatus("내가 말하는 중");
       break;
     case "input_audio_buffer.speech_stopped":
+      if (!state.initialGreetingCompleted) {
+        return;
+      }
       setStatus("작가가 듣는 중");
       break;
     case "conversation.item.input_audio_transcription.completed":
-      if (event.transcript) {
+      if (state.initialGreetingCompleted && event.transcript) {
         appendConversation("user", event.transcript, "말하기");
       }
       break;
     case "error":
+      state.awaitingResponse = false;
       appendConversation("system", event.error?.message || "오류가 생겼어요.");
       setStatus("오류");
       break;
@@ -589,7 +767,7 @@ function handleRealtimeEvent(event) {
   }
 }
 
-async function connectSession() {
+async function connectSession(preferredMode = "audio") {
   const apiKey = els.apiKey.value.trim();
 
   if (!apiKey) {
@@ -605,29 +783,42 @@ async function connectSession() {
   const dc = pc.createDataChannel("oai-events");
   let stream = null;
 
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    });
-    setInputMode("audio");
-  } catch {
+  if (preferredMode === "audio") {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      setInputMode("audio");
+    } catch (error) {
+      setInputMode("audio");
+      setStatus("마이크 권한 필요");
+      throw new Error(describeMicrophoneError(error));
+    }
+  } else {
     setInputMode("text");
-    setStatus("글 대화 연결 중");
-    appendConversation("system", "마이크 없이 글로 대화할 수 있는 상태로 연결합니다.");
+    setStatus("텍스트 테스트 준비 중");
   }
 
   state.pc = pc;
   state.dc = dc;
   state.stream = stream;
   state.assistantDraftText = "";
+  state.sessionConfigured = false;
+  state.initialGreetingRequested = false;
+  state.initialGreetingCompleted = preferredMode === "text";
+  state.awaitingResponse = false;
+  clearResponseAfterSpeechTimer();
 
   els.remoteAudio.srcObject = new MediaStream();
 
   if (stream) {
+    for (const track of stream.getAudioTracks()) {
+      track.enabled = false;
+    }
     for (const track of stream.getTracks()) {
       pc.addTrack(track, stream);
     }
@@ -643,8 +834,11 @@ async function connectSession() {
   pc.onconnectionstatechange = () => {
     if (pc.connectionState === "connected") {
       setConnected(true);
-      setCallPhase("connected");
-      appendConversation("system", `${els.friendNamePreview.textContent} 작가가 전화를 받았습니다.`);
+      if (state.inputMode === "text") {
+        setCallPhase("connected");
+      } else {
+        setCallPhase("ringing", "작가가 먼저 인사하고 있어요. 인사가 끝나면 바로 이야기할 수 있어요.");
+      }
     }
 
     if (["failed", "closed", "disconnected"].includes(pc.connectionState)) {
@@ -667,18 +861,31 @@ async function connectSession() {
     appendConversation("system", "연결 중 문제가 생겼습니다.");
   };
 
+  pc.oniceconnectionstatechange = () => {
+    console.debug("[webrtc ice]", pc.iceConnectionState);
+  };
+
+  pc.onicegatheringstatechange = () => {
+    console.debug("[webrtc gathering]", pc.iceGatheringState);
+  };
+
+  pc.onsignalingstatechange = () => {
+    console.debug("[webrtc signaling]", pc.signalingState);
+  };
+
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
+  await waitForIceGatheringComplete(pc);
 
   const config = collectConfig();
-  const response = await fetch("/api/session", {
+  const tokenResponse = await fetch("/api/realtime-token", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
       apiKey,
-      offerSdp: offer.sdp,
+      offerSdp: pc.localDescription?.sdp || offer.sdp,
       config: {
         model: config.model,
         personaName: config.personaName,
@@ -697,9 +904,9 @@ async function connectSession() {
     }),
   });
 
-  if (!response.ok) {
-    let errorMessage = "세션 연결에 실패했어요.";
-    const rawBody = await response.text();
+  if (!tokenResponse.ok) {
+    let errorMessage = "실시간 대화 토큰을 만들지 못했어요.";
+    const rawBody = await tokenResponse.text();
 
     try {
       const payload = JSON.parse(rawBody);
@@ -711,18 +918,44 @@ async function connectSession() {
     throw new Error(errorMessage);
   }
 
-  const payload = await response.json();
+  const tokenPayload = await tokenResponse.json();
+  const sdpResponse = await fetch("https://api.openai.com/v1/realtime/calls", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${tokenPayload.clientSecret}`,
+      "Content-Type": "application/sdp",
+    },
+    body: pc.localDescription?.sdp || offer.sdp,
+  });
+
+  if (!sdpResponse.ok) {
+    let errorMessage = "실시간 대화 연결에 실패했어요.";
+    const rawBody = await sdpResponse.text();
+
+    try {
+      const payload = JSON.parse(rawBody);
+      errorMessage = normalizeUiErrorMessage(payload.error || payload.message);
+    } catch {
+      errorMessage = normalizeUiErrorMessage(rawBody);
+    }
+
+    throw new Error(errorMessage);
+  }
+
+  const answerSdp = await sdpResponse.text();
   await pc.setRemoteDescription({
     type: "answer",
-    sdp: payload.answerSdp,
+    sdp: answerSdp,
   });
+
+  await waitForDataChannelOpen(dc);
 
   sendEvent({
     type: "session.update",
     session: {
       type: "realtime",
       instructions: buildInstructions(config),
-      output_modalities: ["audio", "text"],
+      output_modalities: ["audio"],
       audio: {
         input: {
           turn_detection:
@@ -741,6 +974,7 @@ async function connectSession() {
       },
     },
   });
+
 }
 
 function disconnectSession() {
@@ -751,6 +985,7 @@ function disconnectSessionWithOptions(options = {}) {
   stopRingbackTone();
   stopEffectTone();
   state.callStarting = false;
+  clearResponseAfterSpeechTimer();
 
   if (state.dc) {
     state.dc.close();
@@ -790,6 +1025,10 @@ function disconnectSessionWithOptions(options = {}) {
   state.dc = null;
   state.stream = null;
   state.assistantDraftText = "";
+  state.sessionConfigured = false;
+  state.initialGreetingRequested = false;
+  state.initialGreetingCompleted = false;
+  state.awaitingResponse = false;
   setInputMode("audio");
   state.connected = false;
   refreshCallControls();
@@ -824,7 +1063,7 @@ async function startPhoneCallFlow() {
   saveSettings();
   refreshCallControls();
   setCallPhase("dialing", `${phoneNumber}로 전화를 거는 중이에요.`);
-  appendConversation("system", `${els.friendNamePreview.textContent} 작가에게 전화를 걸고 있어요.`);
+  clearConversationLog();
 
   try {
     await playRingbackTone();
@@ -836,7 +1075,6 @@ async function startPhoneCallFlow() {
     state.callTimer = window.setTimeout(async () => {
       stopRingbackTone();
       setCallPhase("ringing", "작가가 전화를 받았습니다. 곧 대화가 시작됩니다.");
-      appendConversation("system", `${els.friendNamePreview.textContent} 작가가 전화를 받는 중입니다.`);
 
       try {
         await playPickupTone();
@@ -852,6 +1090,42 @@ async function startPhoneCallFlow() {
       }
     }, 2200);
   }, 1200);
+}
+
+async function startTextTestFlow() {
+  const apiKey = els.apiKey.value.trim();
+
+  if (!apiKey) {
+    appendConversation("system", "설정 탭에서 API 키를 먼저 넣어 주세요.");
+    switchTab("settings");
+    return;
+  }
+
+  if (state.callStarting || state.connected) {
+    return;
+  }
+
+  state.callStarting = true;
+  switchTab("conversation");
+  saveSettings();
+  clearConversationLog();
+  refreshCallControls();
+  setCallPhase("dialing", "텍스트로 페르소나 테스트 연결을 준비하고 있어요.");
+
+  try {
+    await connectSession("text");
+    setCallPhase("connected", "텍스트 테스트가 연결되었어요. 아래 입력창에 질문을 적어 보세요.");
+    els.textInput.focus();
+  } catch (error) {
+    disconnectSessionWithOptions({ quiet: true, keepReady: true });
+    appendConversation(
+      "system",
+      error instanceof Error ? normalizeUiErrorMessage(error.message) : "텍스트 테스트 연결에 실패했어요.",
+    );
+  } finally {
+    state.callStarting = false;
+    refreshCallControls();
+  }
 }
 
 function sendTextMessage() {
@@ -885,6 +1159,9 @@ function bindEvents() {
   els.conversationTabButton.addEventListener("click", () => switchTab("conversation"));
   els.saveSettingsButton.addEventListener("click", saveSettings);
   els.startConversationButton.addEventListener("click", moveToConversationTab);
+  els.startTextTestButton?.addEventListener("click", async () => {
+    await startTextTestFlow();
+  });
   els.presetSelect.addEventListener("change", () => applyPreset(els.presetSelect.value));
   els.speed.addEventListener("input", renderSpeed);
   els.phoneNumber.addEventListener("input", updatePhonePreview);
@@ -909,6 +1186,9 @@ function bindEvents() {
 
   els.connectButton.addEventListener("click", async () => {
     await startPhoneCallFlow();
+  });
+  els.connectTextTestButton?.addEventListener("click", async () => {
+    await startTextTestFlow();
   });
 
   els.disconnectButton.addEventListener("click", disconnectSession);
@@ -951,7 +1231,6 @@ function boot() {
   updateApiKeyStatus();
   setCallPhase("idle");
   bindEvents();
-  appendConversation("system", "작가를 정하고 전화번호를 누른 뒤 전화를 걸어 보세요.");
 }
 
 boot();
