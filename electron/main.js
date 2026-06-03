@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell, screen } from "electron";
 import { access, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { startServer, stopServer } from "../server.js";
@@ -10,13 +10,14 @@ let mainWindow = null;
 let isQuitting = false;
 
 function createMainWindow() {
+  const { workAreaSize } = screen.getPrimaryDisplay();
   const win = new BrowserWindow({
-    width: 1440,
-    height: 980,
-    minWidth: 1100,
-    minHeight: 760,
+    width: Math.min(1440, workAreaSize.width),
+    height: Math.min(880, workAreaSize.height),
+    minWidth: Math.min(1100, workAreaSize.width),
+    minHeight: Math.min(660, workAreaSize.height),
     autoHideMenuBar: true,
-    title: "Persona Voice Lab",
+    title: "페르소나 대화하기",
     webPreferences: {
       preload: join(app.getAppPath(), "electron", "preload.js"),
       contextIsolation: true,

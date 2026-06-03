@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>작가와의 대화</title>
+    <title>페르소나 대화하기</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <div class="page-shell">
       <header class="hero">
         <div class="hero-copy-wrap">
-          <h1>작가와의 대화</h1>
+          <h1>페르소나 대화하기</h1>
         </div>
         <div class="hero-bubbles" aria-hidden="true">
           <div class="bubble bubble-pink"></div>
@@ -28,7 +28,7 @@
         <section id="settingsTab" class="tab-panel active">
           <div class="panel">
             <div class="section-title-row">
-              <h2>작가 설정</h2>
+              <h2>인물 설정</h2>
               <select id="presetSelect" class="soft-select">
                 <option value="custom">직접 만들기</option>
               </select>
@@ -50,8 +50,8 @@
                 <p class="helper-copy">입력한 API 키는 이 브라우저 또는 설치형 앱 내부 저장소에만 남고, 서버 파일에는 따로 저장되지 않습니다.</p>
               </label>
               <label class="field">
-                <span>작가 이름</span>
-                <input id="personaName" type="text" placeholder="예: 동화 작가 김하늘" />
+                <span>인물 이름</span>
+                <input id="personaName" type="text" placeholder="예: 나폴레옹, 세종대왕, 셜록 홈즈" />
               </label>
               <label class="field">
                 <span>목소리</span>
@@ -73,18 +73,18 @@
             </div>
 
             <label class="field">
-              <span>작가 페르소나 설정</span>
+              <span>페르소나 설정</span>
               <textarea
                 id="personaPrompt"
-                rows="8"
-                placeholder="예: 너는 어린이 문학 작가 김하늘이다. 초등학생과 전화로 대화한다. 작품을 쓰게 된 이유, 등장인물의 마음, 글쓰기 과정 등을 친절하고 쉽게 설명한다. 답변은 짧고 또렷하게 말하고, 아이가 이어서 질문하고 싶어지도록 따뜻하게 반응한다."
+                rows="5"
+                placeholder="예: 너는 조선 제4대 왕 세종대왕이다. 한글 창제의 이유, 백성을 위한 정책, 당시의 생활상을 친절하고 차분하게 설명한다. 어려운 역사 용어는 쉽게 풀어 말하고, 상대방이 더 궁금해하도록 따뜻하게 반응한다."
               ></textarea>
             </label>
 
             <div class="mini-guide">
               <div class="guide-item">
                 <strong>1</strong>
-                <span>작가를 정해요</span>
+                <span>인물을 정해요</span>
               </div>
               <div class="guide-item">
                 <strong>2</strong>
@@ -124,7 +124,7 @@
 
               <div class="phone-surface">
                 <div class="call-display">
-                  <div class="friend-name" id="friendNamePreview">작가</div>
+                  <div class="friend-name" id="friendNamePreview">인물</div>
                   <div id="phoneNumberPreview" class="phone-number">010-0000-0000</div>
                   <div id="callStageText" class="call-stage-text">전화번호를 입력하고 초록 버튼을 눌러 주세요.</div>
                 </div>
@@ -156,7 +156,7 @@
                   <div class="call-visual-art">
                     <div class="avatar-ring">
                       <div class="avatar-core">
-                        <span id="writerInitial" class="writer-initial">작</span>
+                        <span id="writerInitial" class="writer-initial">인</span>
                       </div>
                     </div>
                     <div class="voice-waves" aria-hidden="true">
@@ -167,7 +167,7 @@
                     </div>
                   </div>
                   <div class="call-visual-text">
-                    <div id="callVisualName" class="call-visual-name">작가</div>
+                    <div id="callVisualName" class="call-visual-name">인물</div>
                     <strong id="liveStatusText" class="monitor-status-text">통화 준비</strong>
                     <p id="liveCaption" class="live-caption">통화가 시작되면 이곳에 통화 상태가 표시됩니다.</p>
                   </div>
