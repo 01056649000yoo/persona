@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
+import { chmod, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -292,30 +293,124 @@ async function handleRealtimeToken(req, res) {
   }
 }
 
-const server = createServer(async (req, res) => {
-  if (!req.url || !req.method) {
-    json(res, 400, { error: "Invalid request" });
-    return;
+async function handleCreateDesktopShortcut(_req, res) {
+  try {
+    const desktopDir = join(homedir(), "Desktop");
+    const shortcutPath = join(desktopDir, "작가와의 대화.command");
+    const script = `#!/bin/bash
+set -e
+APP_DIR=${JSON.stringify(__dirname.replace(/\/$/, ""))}
+PORT=${JSON.stringify(String(port))}
+LOG_FILE="/tmp/persona-voice-lab.log"
+
+cd "$APP_DIR"
+
+if ! command -v node >/dev/null 2>&1; then
+  osascript -e 'display alert "Node.js를 먼저 설치해 주세요." message "바탕화면 바로가기를 사용하려면 이 Mac에 Node.js가 필요합니다."' >/dev/null 2>&1 || true
+  exit 1
+fi
+
+if ! lsof -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  nohup node server.js >"$LOG_FILE" 2>&1 &
+  for _ in {1..20}; do
+    if curl -s "http://127.0.0.1:$PORT" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.5
+  done
+fi
+
+open "http://127.0.0.1:$PORT"
+`;
+
+    await writeFile(shortcutPath, script, "utf-8");
+    await chmod(shortcutPath, 0o755);
+
+    json(res, 200, {
+      shortcutPath,
+      message: "바탕화면에 바로가기를 만들었어요.",
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "바탕화면 바로가기를 만들지 못했습니다.";
+    json(res, 500, { error: message });
+  }
+}
+
+function createAppServer() {
+  return createServer(async (req, res) => {
+    if (!req.url || !req.method) {
+      json(res, 400, { error: "Invalid request" });
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/api/session") {
+      await handleSession(req, res);
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/api/realtime-token") {
+      await handleRealtimeToken(req, res);
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/api/create-desktop-shortcut") {
+      await handleCreateDesktopShortcut(req, res);
+      return;
+    }
+
+    if (req.method === "GET") {
+      await serveStatic(req, res);
+      return;
+    }
+
+    json(res, 405, { error: "Method not allowed" });
+  });
+}
+
+let activeServer = null;
+
+export function startServer(listenPort = port) {
+  if (activeServer) {
+    return Promise.resolve(activeServer);
   }
 
-  if (req.method === "POST" && req.url === "/api/session") {
-    await handleSession(req, res);
-    return;
+  const server = createAppServer();
+
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(listenPort, () => {
+      server.off("error", reject);
+      activeServer = server;
+      console.log(`Voice persona app running at http://localhost:${listenPort}`);
+      resolve(server);
+    });
+  });
+}
+
+export function stopServer() {
+  if (!activeServer) {
+    return Promise.resolve();
   }
 
-  if (req.method === "POST" && req.url === "/api/realtime-token") {
-    await handleRealtimeToken(req, res);
-    return;
-  }
+  const server = activeServer;
+  activeServer = null;
 
-  if (req.method === "GET") {
-    await serveStatic(req, res);
-    return;
-  }
+  return new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
 
-  json(res, 405, { error: "Method not allowed" });
-});
+const isDirectRun = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 
-server.listen(port, () => {
-  console.log(`Voice persona app running at http://localhost:${port}`);
-});
+if (isDirectRun) {
+  startServer().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}

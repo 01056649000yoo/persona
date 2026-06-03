@@ -47,6 +47,7 @@
                   <span id="apiKeyStatus" class="key-status">저장되지 않음</span>
                   <button id="toggleApiKeyButton" type="button" class="tiny-button">보기</button>
                 </div>
+                <p class="helper-copy">입력한 API 키는 이 브라우저 또는 설치형 앱 내부 저장소에만 남고, 서버 파일에는 따로 저장되지 않습니다.</p>
               </label>
               <label class="field">
                 <span>작가 이름</span>
@@ -98,6 +99,17 @@
             <div class="start-row">
               <button id="startConversationButton" type="button" class="call-button start-button">대화하기 시작</button>
               <button id="startTextTestButton" type="button" class="soft-button">텍스트로 페르소나 테스트</button>
+            </div>
+
+            <div class="shortcut-card">
+              <div>
+                <strong>바탕화면 바로가기</strong>
+                <p>설치형 앱에서는 Windows 바탕화면 바로가기를, 웹 실행 모드에서는 로컬 실행 바로가기를 만들 수 있어요.</p>
+              </div>
+              <div class="shortcut-actions">
+                <button id="createDesktopShortcutButton" type="button" class="soft-button">바탕화면 바로가기 만들기</button>
+                <span id="desktopShortcutStatus" class="shortcut-status">아직 만들지 않음</span>
+              </div>
             </div>
           </div>
         </section>

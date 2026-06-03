@@ -24,6 +24,7 @@ const presets = {
 };
 
 const storageKey = "voice-persona-local-settings";
+const desktopBridge = window.personaDesktop ?? null;
 
 const els = {
   settingsTabButton: document.querySelector("#settingsTabButton"),
@@ -48,6 +49,8 @@ const els = {
   settingsStatus: document.querySelector("#settingsStatus"),
   startConversationButton: document.querySelector("#startConversationButton"),
   startTextTestButton: document.querySelector("#startTextTestButton"),
+  createDesktopShortcutButton: document.querySelector("#createDesktopShortcutButton"),
+  desktopShortcutStatus: document.querySelector("#desktopShortcutStatus"),
   connectButton: document.querySelector("#connectButton"),
   connectTextTestButton: document.querySelector("#connectTextTestButton"),
   disconnectButton: document.querySelector("#disconnectButton"),
@@ -170,6 +173,16 @@ function setSettingsStatus(label, tone = "pending") {
   els.settingsStatus.style.background =
     tone === "saved" ? "#eefaf1" : tone === "error" ? "#fff1f1" : "#fff4bf";
   els.settingsStatus.style.color =
+    tone === "saved" ? "#238b55" : tone === "error" ? "#b54747" : "#8a6a00";
+}
+
+function setDesktopShortcutStatus(label, tone = "pending") {
+  if (!els.desktopShortcutStatus) return;
+
+  els.desktopShortcutStatus.textContent = label;
+  els.desktopShortcutStatus.style.background =
+    tone === "saved" ? "#eefaf1" : tone === "error" ? "#fff1f1" : "#fff4bf";
+  els.desktopShortcutStatus.style.color =
     tone === "saved" ? "#238b55" : tone === "error" ? "#b54747" : "#8a6a00";
 }
 
@@ -1128,6 +1141,42 @@ async function startTextTestFlow() {
   }
 }
 
+async function createDesktopShortcut() {
+  setDesktopShortcutStatus("만드는 중...", "pending");
+
+  try {
+    if (desktopBridge?.isElectron) {
+      const payload = await desktopBridge.createShortcut();
+      setDesktopShortcutStatus("바탕화면에 생성됨", "saved");
+      appendConversation("system", payload.message || "바탕화면에 바로가기를 만들었어요.");
+      return;
+    }
+
+    const response = await fetch("/api/create-desktop-shortcut", {
+      method: "POST",
+    });
+
+    const rawBody = await response.text();
+    let payload = {};
+
+    try {
+      payload = JSON.parse(rawBody || "{}");
+    } catch {
+      payload = {};
+    }
+
+    if (!response.ok) {
+      throw new Error(normalizeUiErrorMessage(payload.error || rawBody || "바탕화면 바로가기를 만들지 못했어요."));
+    }
+
+    setDesktopShortcutStatus("바탕화면에 생성됨", "saved");
+    appendConversation("system", `바탕화면에 바로가기를 만들었어요. 이제 바탕화면의 "작가와의 대화" 아이콘으로 바로 시작할 수 있어요.`);
+  } catch (error) {
+    setDesktopShortcutStatus("만들기 실패", "error");
+    appendConversation("system", error instanceof Error ? error.message : "바탕화면 바로가기를 만들지 못했어요.");
+  }
+}
+
 function sendTextMessage() {
   const text = els.textInput.value.trim();
   if (!text) return;
@@ -1161,6 +1210,9 @@ function bindEvents() {
   els.startConversationButton.addEventListener("click", moveToConversationTab);
   els.startTextTestButton?.addEventListener("click", async () => {
     await startTextTestFlow();
+  });
+  els.createDesktopShortcutButton?.addEventListener("click", async () => {
+    await createDesktopShortcut();
   });
   els.presetSelect.addEventListener("change", () => applyPreset(els.presetSelect.value));
   els.speed.addEventListener("input", renderSpeed);
@@ -1231,6 +1283,7 @@ function boot() {
   updateApiKeyStatus();
   setCallPhase("idle");
   bindEvents();
+  setDesktopShortcutStatus("아직 만들지 않음", "pending");
 }
 
 boot();
