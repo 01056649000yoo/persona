@@ -29,13 +29,21 @@
           <div class="panel">
             <div class="section-title-row">
               <h2>인물 설정</h2>
-              <select id="presetSelect" class="soft-select">
-                <option value="custom">직접 만들기</option>
-              </select>
+              <div class="persona-selector">
+                <select id="presetSelect" class="soft-select">
+                  <option value="custom">직접 만들기</option>
+                </select>
+                <button
+                  id="deletePersonaButton"
+                  type="button"
+                  class="tiny-button danger-button"
+                  disabled
+                >삭제</button>
+              </div>
             </div>
 
             <div class="top-save-row">
-              <button id="saveSettingsButton" type="button" class="save-primary-button">설정 저장</button>
+              <button id="saveSettingsButton" type="button" class="save-primary-button">현재 인물 저장</button>
               <span id="settingsStatus" class="settings-status">저장 전</span>
             </div>
 

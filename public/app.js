@@ -1,29 +1,5 @@
-const presets = {
-  custom: null,
-  fairyTaleAuthor: {
-    personaName: "동화 작가 김하늘",
-    voice: "marin",
-    speed: 0.95,
-    personaPrompt:
-      "너는 아이들을 위한 동화를 쓰는 작가 김하늘이다. 초등학생과 전화로 대화하며 작품 이야기, 인물의 마음, 글쓰기 과정을 쉽고 따뜻하게 설명한다. 답변은 짧고 또렷하게 말한다.",
-  },
-  poet: {
-    personaName: "시인 윤별",
-    voice: "verse",
-    speed: 1,
-    personaPrompt:
-      "너는 시인 윤별이다. 초등학생과 전화로 대화하며 시를 쓰는 이유, 상상하는 방법, 마음을 표현하는 법을 부드럽고 다정하게 들려준다. 어려운 표현은 쉬운 말로 바꿔 말한다.",
-  },
-  novelist: {
-    personaName: "소설가 이도윤",
-    voice: "sage",
-    speed: 0.9,
-    personaPrompt:
-      "너는 소설가 이도윤이다. 초등학생과 전화로 대화하며 이야기 만드는 법, 인물을 떠올리는 법, 재미있는 사건을 만드는 방법을 차분하고 쉽게 설명한다. 답변은 짧은 문장 위주로 한다.",
-  },
-};
-
-const storageKey = "voice-persona-local-settings";
+const draftStorageKey = "voice-persona-local-settings";
+const savedPersonasStorageKey = "voice-persona-saved-personas";
 const desktopBridge = window.personaDesktop ?? null;
 
 const els = {
@@ -46,6 +22,7 @@ const els = {
   callStageText: document.querySelector("#callStageText"),
   conversationLayout: document.querySelector("#conversationLayout"),
   saveSettingsButton: document.querySelector("#saveSettingsButton"),
+  deletePersonaButton: document.querySelector("#deletePersonaButton"),
   settingsStatus: document.querySelector("#settingsStatus"),
   startConversationButton: document.querySelector("#startConversationButton"),
   startTextTestButton: document.querySelector("#startTextTestButton"),
@@ -91,14 +68,56 @@ const state = {
   inputMode: "audio",
 };
 
-function initPresetOptions() {
-  for (const [key, preset] of Object.entries(presets)) {
-    if (!preset) continue;
-    const option = document.createElement("option");
-    option.value = key;
-    option.textContent = preset.personaName;
-    els.presetSelect.append(option);
+function loadSavedPersonas() {
+  try {
+    const raw = localStorage.getItem(savedPersonasStorageKey);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
   }
+}
+
+function persistSavedPersonas(map) {
+  localStorage.setItem(savedPersonasStorageKey, JSON.stringify(map));
+}
+
+function updateDeletePersonaButton() {
+  const isSaved = (els.presetSelect.value || "").startsWith("saved:");
+  els.deletePersonaButton.disabled = !isSaved;
+}
+
+function renderPresetOptions(selectedValue) {
+  const select = els.presetSelect;
+  select.innerHTML = "";
+
+  const customOption = document.createElement("option");
+  customOption.value = "custom";
+  customOption.textContent = "직접 만들기";
+  select.append(customOption);
+
+  const saved = loadSavedPersonas();
+  const savedNames = Object.keys(saved).sort((a, b) => a.localeCompare(b, "ko"));
+  if (savedNames.length) {
+    const group = document.createElement("optgroup");
+    group.label = "내가 저장한 인물";
+    for (const name of savedNames) {
+      const option = document.createElement("option");
+      option.value = `saved:${name}`;
+      option.textContent = name;
+      group.append(option);
+    }
+    select.append(group);
+  }
+
+  if (selectedValue) {
+    select.value = selectedValue;
+    if (select.value !== selectedValue) {
+      select.value = "custom";
+    }
+  } else {
+    select.value = "custom";
+  }
+  updateDeletePersonaButton();
 }
 
 function mapVoiceLabelToId(value) {
@@ -193,43 +212,93 @@ function updateApiKeyStatus() {
   els.apiKeyStatus.style.color = hasKey ? "#238b55" : "#b54747";
 }
 
-function saveSettings() {
+function saveDraft() {
   localStorage.setItem(
-    storageKey,
+    draftStorageKey,
     JSON.stringify({
       apiKey: els.apiKey.value,
+      lastSelected: els.presetSelect.value || "custom",
       ...collectConfig(),
     }),
   );
   state.settingsDirty = false;
   updateApiKeyStatus();
-  setSettingsStatus("이 기기에 저장됨", "saved");
+}
+
+function saveCurrentAsPersona() {
+  const config = collectConfig();
+  const name = config.personaName;
+  if (!name) {
+    setSettingsStatus("인물 이름을 먼저 적어 주세요", "error");
+    return;
+  }
+  const map = loadSavedPersonas();
+  map[name] = {
+    personaName: name,
+    voice: config.voice,
+    speed: config.speed,
+    personaPrompt: config.personaPrompt,
+    phoneNumber: config.phoneNumber,
+  };
+  persistSavedPersonas(map);
+  renderPresetOptions(`saved:${name}`);
+  saveDraft();
+  setSettingsStatus(`'${name}' 인물 저장됨`, "saved");
+}
+
+function deleteCurrentPersona() {
+  const value = els.presetSelect.value || "";
+  if (!value.startsWith("saved:")) return;
+  const name = value.slice("saved:".length);
+  if (!window.confirm(`'${name}' 인물을 삭제할까요?`)) return;
+  const map = loadSavedPersonas();
+  delete map[name];
+  persistSavedPersonas(map);
+  renderPresetOptions("custom");
+  saveDraft();
+  setSettingsStatus(`'${name}' 인물 삭제됨`, "saved");
 }
 
 function loadSavedSettings() {
   try {
-    const raw = localStorage.getItem(storageKey);
+    const raw = localStorage.getItem(draftStorageKey);
 
     if (!raw) {
-      applyPreset("fairyTaleAuthor");
+      renderPresetOptions("custom");
+      setSettingsStatus("직접 만들기", "pending");
       return;
     }
 
     const saved = JSON.parse(raw);
     els.apiKey.value = saved.apiKey || "";
     fillForm(saved);
+    renderPresetOptions(saved.lastSelected || "custom");
     updateApiKeyStatus();
     setSettingsStatus("불러옴", "saved");
   } catch {
-    applyPreset("fairyTaleAuthor");
+    renderPresetOptions("custom");
   }
 }
 
-function applyPreset(name) {
-  const preset = presets[name];
-  if (!preset) return;
-  fillForm(preset);
-  saveSettings();
+function applyDropdownSelection(value) {
+  if (!value || value === "custom") {
+    updateDeletePersonaButton();
+    saveDraft();
+    setSettingsStatus("직접 만들기", "pending");
+    return;
+  }
+  if (value.startsWith("saved:")) {
+    const name = value.slice("saved:".length);
+    const persona = loadSavedPersonas()[name];
+    if (!persona) {
+      renderPresetOptions("custom");
+      return;
+    }
+    fillForm(persona);
+    updateDeletePersonaButton();
+    saveDraft();
+    setSettingsStatus(`'${name}' 인물 불러옴`, "saved");
+  }
 }
 
 function markSettingsDirty() {
@@ -789,7 +858,7 @@ async function connectSession(preferredMode = "audio") {
     return;
   }
 
-  saveSettings();
+  saveDraft();
   setStatus("마이크 준비 중");
 
   const pc = new RTCPeerConnection();
@@ -1073,7 +1142,7 @@ async function startPhoneCallFlow() {
 
   state.callStarting = true;
   switchTab("conversation");
-  saveSettings();
+  saveDraft();
   refreshCallControls();
   setCallPhase("dialing", `${phoneNumber}로 전화를 거는 중이에요.`);
   clearConversationLog();
@@ -1120,7 +1189,7 @@ async function startTextTestFlow() {
 
   state.callStarting = true;
   switchTab("conversation");
-  saveSettings();
+  saveDraft();
   clearConversationLog();
   refreshCallControls();
   setCallPhase("dialing", "텍스트로 페르소나 테스트 연결을 준비하고 있어요.");
@@ -1206,7 +1275,8 @@ function triggerManualReply() {
 function bindEvents() {
   els.settingsTabButton.addEventListener("click", () => switchTab("settings"));
   els.conversationTabButton.addEventListener("click", () => switchTab("conversation"));
-  els.saveSettingsButton.addEventListener("click", saveSettings);
+  els.saveSettingsButton.addEventListener("click", saveCurrentAsPersona);
+  els.deletePersonaButton.addEventListener("click", deleteCurrentPersona);
   els.startConversationButton.addEventListener("click", moveToConversationTab);
   els.startTextTestButton?.addEventListener("click", async () => {
     await startTextTestFlow();
@@ -1214,7 +1284,7 @@ function bindEvents() {
   els.createDesktopShortcutButton?.addEventListener("click", async () => {
     await createDesktopShortcut();
   });
-  els.presetSelect.addEventListener("change", () => applyPreset(els.presetSelect.value));
+  els.presetSelect.addEventListener("change", () => applyDropdownSelection(els.presetSelect.value));
   els.speed.addEventListener("input", renderSpeed);
   els.phoneNumber.addEventListener("input", updatePhonePreview);
   els.toggleApiKeyButton.addEventListener("click", toggleApiKeyVisibility);
@@ -1222,18 +1292,18 @@ function bindEvents() {
   [els.apiKey, els.personaName, els.voice, els.speed, els.personaPrompt].forEach((element) => {
     element.addEventListener("change", () => {
       markSettingsDirty();
-      saveSettings();
+      saveDraft();
     });
     element.addEventListener("input", () => {
       markSettingsDirty();
-      saveSettings();
+      saveDraft();
       updateFriendPreview();
     });
   });
 
   els.phoneNumber.addEventListener("change", () => {
     markSettingsDirty();
-    saveSettings();
+    saveDraft();
   });
 
   els.connectButton.addEventListener("click", async () => {
@@ -1264,7 +1334,7 @@ function bindEvents() {
 
   window.addEventListener("beforeunload", () => {
     if (state.settingsDirty) {
-      saveSettings();
+      saveDraft();
     }
   });
 
@@ -1274,7 +1344,6 @@ function bindEvents() {
 }
 
 function boot() {
-  initPresetOptions();
   setSettingsStatus("불러오는 중", "pending");
   loadSavedSettings();
   renderSpeed();
