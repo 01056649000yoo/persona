@@ -27,6 +27,22 @@
 
         <section id="settingsTab" class="tab-panel active">
           <div class="panel">
+            <div class="api-key-card">
+              <div class="api-key-header">
+                <h3>OpenAI API 키</h3>
+                <span id="apiKeyStatus" class="key-status">저장되지 않음</span>
+              </div>
+              <div class="api-key-input-row">
+                <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off" />
+                <button id="toggleApiKeyButton" type="button" class="tiny-button">보기</button>
+              </div>
+              <div class="api-key-actions">
+                <button id="saveApiKeyButton" type="button" class="soft-button" disabled>저장</button>
+                <button id="deleteApiKeyButton" type="button" class="tiny-button danger-button" disabled>삭제</button>
+              </div>
+              <p class="helper-copy">입력한 API 키는 이 브라우저 또는 설치형 앱 내부 저장소에만 남고, 서버 파일에는 따로 저장되지 않습니다.</p>
+            </div>
+
             <div class="section-title-row">
               <h2>인물 설정</h2>
               <div class="persona-selector">
@@ -48,15 +64,6 @@
             </div>
 
             <div class="field-grid">
-              <label class="field">
-                <span>OpenAI API 키</span>
-                <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off" />
-                <div class="key-status-row">
-                  <span id="apiKeyStatus" class="key-status">저장되지 않음</span>
-                  <button id="toggleApiKeyButton" type="button" class="tiny-button">보기</button>
-                </div>
-                <p class="helper-copy">입력한 API 키는 이 브라우저 또는 설치형 앱 내부 저장소에만 남고, 서버 파일에는 따로 저장되지 않습니다.</p>
-              </label>
               <label class="field">
                 <span>인물 이름</span>
                 <input id="personaName" type="text" placeholder="예: 나폴레옹, 세종대왕, 셜록 홈즈" />

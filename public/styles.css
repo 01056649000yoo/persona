@@ -298,6 +298,62 @@ button {
   text-align: center;
 }
 
+.api-key-card {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(97, 185, 255, 0.15);
+}
+
+.api-key-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.api-key-header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+}
+
+.api-key-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.api-key-input-row input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 2px solid transparent;
+  border-radius: 20px;
+  background: var(--panel-strong);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line);
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+}
+
+.api-key-input-row input:focus {
+  outline: none;
+  border-color: #ffd45c;
+  box-shadow: 0 0 0 4px rgba(255, 205, 66, 0.22);
+}
+
+.api-key-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.api-key-card .helper-copy {
+  margin: 0;
+}
+
 .key-status-row {
   display: flex;
   align-items: center;

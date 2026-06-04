@@ -1,5 +1,6 @@
 const draftStorageKey = "voice-persona-local-settings";
 const savedPersonasStorageKey = "voice-persona-saved-personas";
+const apiKeyStorageKey = "voice-persona-api-key";
 const desktopBridge = window.personaDesktop ?? null;
 
 const els = {
@@ -11,6 +12,8 @@ const els = {
   apiKey: document.querySelector("#apiKey"),
   apiKeyStatus: document.querySelector("#apiKeyStatus"),
   toggleApiKeyButton: document.querySelector("#toggleApiKeyButton"),
+  saveApiKeyButton: document.querySelector("#saveApiKeyButton"),
+  deleteApiKeyButton: document.querySelector("#deleteApiKeyButton"),
   personaName: document.querySelector("#personaName"),
   voice: document.querySelector("#voice"),
   speed: document.querySelector("#speed"),
@@ -66,6 +69,7 @@ const state = {
   apiKeyVisible: false,
   settingsDirty: false,
   inputMode: "audio",
+  activeConfig: null,
 };
 
 function loadSavedPersonas() {
@@ -205,24 +209,70 @@ function setDesktopShortcutStatus(label, tone = "pending") {
     tone === "saved" ? "#238b55" : tone === "error" ? "#b54747" : "#8a6a00";
 }
 
-function updateApiKeyStatus() {
-  const hasKey = Boolean(els.apiKey.value.trim());
-  els.apiKeyStatus.textContent = hasKey ? "이 기기에 저장됨" : "저장되지 않음";
-  els.apiKeyStatus.style.background = hasKey ? "#eefaf1" : "#fff1f1";
-  els.apiKeyStatus.style.color = hasKey ? "#238b55" : "#b54747";
+function setApiKeyStatus(label, tone = "pending") {
+  els.apiKeyStatus.textContent = label;
+  if (tone === "saved") {
+    els.apiKeyStatus.style.background = "#eefaf1";
+    els.apiKeyStatus.style.color = "#238b55";
+  } else if (tone === "error") {
+    els.apiKeyStatus.style.background = "#fff1f1";
+    els.apiKeyStatus.style.color = "#b54747";
+  } else {
+    els.apiKeyStatus.style.background = "#fff4bf";
+    els.apiKeyStatus.style.color = "#8a6a00";
+  }
+}
+
+function getStoredApiKey() {
+  return localStorage.getItem(apiKeyStorageKey) || "";
+}
+
+function refreshApiKeyControls() {
+  const stored = getStoredApiKey();
+  const current = els.apiKey.value;
+  const trimmed = current.trim();
+  const dirty = current !== stored;
+
+  els.deleteApiKeyButton.disabled = !stored;
+  els.saveApiKeyButton.disabled = !dirty || !trimmed;
+
+  if (!stored && !trimmed) {
+    setApiKeyStatus("저장되지 않음", "error");
+  } else if (dirty) {
+    setApiKeyStatus("변경됨, 저장 필요", "pending");
+  } else {
+    setApiKeyStatus("이 기기에 저장됨", "saved");
+  }
+}
+
+function saveApiKey() {
+  const value = els.apiKey.value.trim();
+  if (!value) {
+    setApiKeyStatus("키를 입력해 주세요", "error");
+    return;
+  }
+  localStorage.setItem(apiKeyStorageKey, value);
+  els.apiKey.value = value;
+  refreshApiKeyControls();
+}
+
+function deleteApiKey() {
+  if (!getStoredApiKey()) return;
+  if (!window.confirm("저장된 API 키를 삭제할까요?")) return;
+  localStorage.removeItem(apiKeyStorageKey);
+  els.apiKey.value = "";
+  refreshApiKeyControls();
 }
 
 function saveDraft() {
   localStorage.setItem(
     draftStorageKey,
     JSON.stringify({
-      apiKey: els.apiKey.value,
       lastSelected: els.presetSelect.value || "custom",
       ...collectConfig(),
     }),
   );
   state.settingsDirty = false;
-  updateApiKeyStatus();
 }
 
 function saveCurrentAsPersona() {
@@ -259,7 +309,29 @@ function deleteCurrentPersona() {
   setSettingsStatus(`'${name}' 인물 삭제됨`, "saved");
 }
 
+function loadStoredApiKey() {
+  const stored = getStoredApiKey();
+  if (stored) return stored;
+  try {
+    const raw = localStorage.getItem(draftStorageKey);
+    if (!raw) return "";
+    const draft = JSON.parse(raw);
+    const legacy = (draft && typeof draft.apiKey === "string") ? draft.apiKey.trim() : "";
+    if (legacy) {
+      localStorage.setItem(apiKeyStorageKey, legacy);
+      delete draft.apiKey;
+      localStorage.setItem(draftStorageKey, JSON.stringify(draft));
+    }
+    return legacy;
+  } catch {
+    return "";
+  }
+}
+
 function loadSavedSettings() {
+  els.apiKey.value = loadStoredApiKey();
+  refreshApiKeyControls();
+
   try {
     const raw = localStorage.getItem(draftStorageKey);
 
@@ -270,10 +342,8 @@ function loadSavedSettings() {
     }
 
     const saved = JSON.parse(raw);
-    els.apiKey.value = saved.apiKey || "";
     fillForm(saved);
     renderPresetOptions(saved.lastSelected || "custom");
-    updateApiKeyStatus();
     setSettingsStatus("불러옴", "saved");
   } catch {
     renderPresetOptions("custom");
@@ -644,15 +714,22 @@ async function playPickupTone() {
   stopEffectTone();
 }
 
-function buildInstructions(config) {
+function buildBaseInstructions(config) {
   return [
     `너의 이름은 ${config.personaName || "작가"}이다.`,
     config.personaPrompt,
+    "한국어로 자연스럽게 대화한다.",
     "초등학생이 듣기 쉽게 짧고 친절하게 말한다.",
-    "작가로서 작품, 인물, 글쓰기 생각을 자연스럽고 따뜻하게 들려준다.",
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function buildGreetingInstructions(config) {
+  return [
+    buildBaseInstructions(config),
+    "통화가 막 연결된 직후의 첫 응답에서는 위 페르소나 설정에 명시된 첫 인사를 토씨 하나 바꾸지 말고 그대로 한 번만 말한다. '여보세요', '안녕하세요' 같은 별도의 도입 인사나 추가 멘트를 앞뒤에 붙이지 않는다. 첫 인사가 명시되어 있지 않다면 그때만 짧고 자연스러운 인사 한 문장을 직접 만든다.",
+  ].join("\n");
 }
 
 function sendEvent(event) {
@@ -798,7 +875,7 @@ function handleRealtimeEvent(event) {
       state.sessionConfigured = true;
       if (!state.initialGreetingRequested) {
         state.initialGreetingRequested = true;
-        requestAssistantResponse("통화가 연결되었다. 먼저 짧고 따뜻하게 인사하고, 아이가 무엇이 궁금한지 한 문장으로 물어봐라.");
+        requestAssistantResponse();
       }
       break;
     case "response.created":
@@ -813,12 +890,24 @@ function handleRealtimeEvent(event) {
     case "response.done":
       state.awaitingResponse = false;
       state.assistantDraftText = "";
+      if (!(state.connected && state.inputMode === "audio" && !state.initialGreetingCompleted)) {
+        setCallPhase(state.connected ? "connected" : "idle");
+      }
+      break;
+    case "output_audio_buffer.stopped":
       if (state.connected && state.inputMode === "audio" && !state.initialGreetingCompleted) {
         state.initialGreetingCompleted = true;
+        if (state.activeConfig) {
+          sendEvent({
+            type: "session.update",
+            session: {
+              type: "realtime",
+              instructions: buildBaseInstructions(state.activeConfig),
+            },
+          });
+        }
         setLocalAudioEnabled(true);
         setCallPhase("connected", "작가 인사가 끝났어요. 이제 이야기해 보세요.");
-      } else {
-        setCallPhase(state.connected ? "connected" : "idle");
       }
       break;
     case "input_audio_buffer.speech_started":
@@ -1032,11 +1121,13 @@ async function connectSession(preferredMode = "audio") {
 
   await waitForDataChannelOpen(dc);
 
+  state.activeConfig = config;
+
   sendEvent({
     type: "session.update",
     session: {
       type: "realtime",
-      instructions: buildInstructions(config),
+      instructions: buildGreetingInstructions(config),
       output_modalities: ["audio"],
       audio: {
         input: {
@@ -1110,6 +1201,7 @@ function disconnectSessionWithOptions(options = {}) {
   state.sessionConfigured = false;
   state.initialGreetingRequested = false;
   state.initialGreetingCompleted = false;
+  state.activeConfig = null;
   state.awaitingResponse = false;
   setInputMode("audio");
   state.connected = false;
@@ -1288,8 +1380,12 @@ function bindEvents() {
   els.speed.addEventListener("input", renderSpeed);
   els.phoneNumber.addEventListener("input", updatePhonePreview);
   els.toggleApiKeyButton.addEventListener("click", toggleApiKeyVisibility);
+  els.saveApiKeyButton.addEventListener("click", saveApiKey);
+  els.deleteApiKeyButton.addEventListener("click", deleteApiKey);
+  els.apiKey.addEventListener("input", refreshApiKeyControls);
+  els.apiKey.addEventListener("change", refreshApiKeyControls);
 
-  [els.apiKey, els.personaName, els.voice, els.speed, els.personaPrompt].forEach((element) => {
+  [els.personaName, els.voice, els.speed, els.personaPrompt].forEach((element) => {
     element.addEventListener("change", () => {
       markSettingsDirty();
       saveDraft();
@@ -1349,7 +1445,6 @@ function boot() {
   renderSpeed();
   updatePhonePreview();
   updateFriendPreview();
-  updateApiKeyStatus();
   setCallPhase("idle");
   bindEvents();
   setDesktopShortcutStatus("아직 만들지 않음", "pending");
